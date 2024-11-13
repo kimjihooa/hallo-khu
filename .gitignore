@@ -173,6 +173,6 @@ test_data
 .outputs/
 .exp_output/
 .test_dataset/
-./Inference
-./Inference_lora
-./Inference_lora8
+.Inference/
+.Inference_lora/
+.Inference_lora8/
