@@ -169,10 +169,11 @@ data
 pretrained_models
 test_data
 
-.logs/
-.outputs/
-.exp_output/
-.test_dataset/
-.Inference/
-.Inference_lora/
-.Inference_lora8/
+logs/
+outputs/
+exp_output/
+test_dataset/
+Inference/
+Inference_lora/
+Inference_lora8/
+examples/
