@@ -458,7 +458,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         project_dir="./mlruns",
         kwargs_handlers=[kwargs],
     )
-    accelerator_lora = Accelerator()
+    # accelerator_lora = Accelerator()
     # accelerator.state.select_deepspeed_plugin("zero2")
     
     # Make one log on every process with the configuration for debugging.
@@ -694,17 +694,17 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         train_dataloader,
         lr_scheduler,
     )
-    (
-        lora_teacher,
-        optimizer_lora,
-        train_dataloader,
-        lr_scheduler_lora,
-    ) = accelerator_lora.prepare(
-        lora_teacher,
-        optimizer_lora,
-        train_dataloader,
-        lr_scheduler_lora,
-    )
+    # (
+    #     lora_teacher,
+    #     optimizer_lora,
+    #     train_dataloader,
+    #     lr_scheduler_lora,
+    # ) = accelerator_lora.prepare(
+    #     lora_teacher,
+    #     optimizer_lora,
+    #     train_dataloader,
+    #     lr_scheduler_lora,
+    # )
     #!!!!!
     # config_path = "/data/kimjihooa/repos/hallo/deepspeed_config.json"
     # with open(config_path, 'r') as f:
@@ -915,60 +915,58 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                     uncond_fwd,
                 )
                 enable_lora(lora_teacher, True)
-                #LoRA loss
-                alpha_t = (alphas_cumprod[timesteps] ** 0.5).view(-1, 1, 1, 1)
-                lora_pred = alpha_t * lora_pred
-                target = alpha_t * noise
-                loss_lora = F.mse_loss(lora_pred.float(), target.float(), reduction="mean")
-                # Backpropagate
-                logger.info("1")
-                net_requires_grad = {name: param.requires_grad for name, param in net.named_parameters()}
-                for param in net.parameters():
-                    param.requires_grad = False
-                # accelerator.backward(loss_lora)
-                accelerator_lora.backward(loss_lora, retain_graph = True)
-                # loss_lora.backward(retain_graph = True)
-                logger.info("3")
-                if accelerator.sync_gradients:
-                    # clip_grad_norm_(list(filter(lambda p: p.requires_grad, lora_teacher.parameters())), max_norm=1.0)
-                    accelerator.clip_grad_norm_(
-                        list(filter(lambda p: p.requires_grad, lora_teacher.parameters())),
-                        cfg.solver.max_grad_norm,
-                    )
-                logger.info("4")
-                optimizer_lora.step()
-                logger.info("5")
-                lr_scheduler_lora.step()
-                logger.info("6")
-                optimizer_lora.zero_grad()
-                logger.info("7")
-                for name, param in net.named_parameters():
-                    param.requires_grad = net_requires_grad[name]
+                
+                # #LoRA loss
+                # alpha_t = (alphas_cumprod[timesteps] ** 0.5).view(-1, 1, 1, 1)
+                # lora_pred = alpha_t * lora_pred
+                # target = alpha_t * noise
+                # loss_lora = F.mse_loss(lora_pred.float(), target.float(), reduction="mean")
+                # # Backpropagate
+                # logger.info("1")
+                # net_requires_grad = {name: param.requires_grad for name, param in net.named_parameters()}
+                # for param in net.parameters():
+                #     param.requires_grad = False
+                # # accelerator.backward(loss_lora)
+                # accelerator_lora.backward(loss_lora, retain_graph = True)
+                # # loss_lora.backward(retain_graph = True)
+                # logger.info("3")
+                # if accelerator.sync_gradients:
+                #     # clip_grad_norm_(list(filter(lambda p: p.requires_grad, lora_teacher.parameters())), max_norm=1.0)
+                #     accelerator.clip_grad_norm_(
+                #         list(filter(lambda p: p.requires_grad, lora_teacher.parameters())),
+                #         cfg.solver.max_grad_norm,
+                #     )
+                # logger.info("4")
+                # optimizer_lora.step()
+                # logger.info("5")
+                # lr_scheduler_lora.step()
+                # logger.info("6")
+                # optimizer_lora.zero_grad()
+                # logger.info("7")
+                # for name, param in net.named_parameters():
+                #     param.requires_grad = net_requires_grad[name]
                 # vsd loss
-                logger.info("9")
                 sigma_t = ((1 - alphas_cumprod[timesteps]) ** 0.5).view(-1, 1, 1, 1)
                 score_gradient = torch.nan_to_num(sigma_t**2 * (teacher_pred - lora_pred))
                 target = (model_pred - score_gradient).detach()
                 loss_vsd = 0.5 * F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 # Backpropagate
-                lora_requires_grad = {name: param.requires_grad for name, param in lora_teacher.named_parameters()}
-                for param in lora_teacher.parameters():
-                    param.requires_grad = False
-                logger.info("10")
+                # lora_requires_grad = {name: param.requires_grad for name, param in lora_teacher.named_parameters()}
+                # for param in lora_teacher.parameters():
+                #     param.requires_grad = False
                 accelerator.backward(loss_vsd)
                 # loss_vsd.backward()
-                logger.info("11")
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(
                         trainable_params,
                         cfg.solver.max_grad_norm,
                     )
-                logger.info("12")
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
-                for name, param in lora_teacher.named_parameters():
-                    param.requires_grad = lora_requires_grad[name]
+                # for name, param in lora_teacher.named_parameters():
+                #     param.requires_grad = lora_requires_grad[name]
+
             if accelerator.sync_gradients:
                 reference_control_reader.clear()
                 reference_control_writer.clear()

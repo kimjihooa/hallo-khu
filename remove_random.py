@@ -3,7 +3,7 @@ import random
 
 directory = "/local_datasets/HDTF/videos/"
 
-for i in range(1, 196):
+for i in range(1, 100):
     file_name = f"{i:05}.mp4"
     file_path = os.path.join(directory, file_name)
     
