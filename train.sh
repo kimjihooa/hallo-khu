@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=32G
 #SBATCH -p batch_ce_ugrad
-#SBATCH -w moana-r3
+#SBATCH -w moana-y4
 #SBATCH -t 1-0
 #SBATCH -o logs/slurm-%A.out
 

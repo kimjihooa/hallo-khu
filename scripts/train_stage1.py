@@ -58,7 +58,6 @@ from hallo.utils.util import (compute_snr, delete_additional_ckpt,
                               save_checkpoint, seed_everything)
 #!!!!!
 #from loralib import Linear as LoraLinear
-import deepspeed
 import json
 from torch.nn.utils import clip_grad_norm_
 
@@ -188,6 +187,8 @@ class LoraLinear(nn.Linear, LoRALayer):
         lora_dropout: float = 0.,
         fan_in_fan_out: bool = False, # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         merge_weights: bool = True,
+        #!!!!!
+        enabled: bool = True,
         **kwargs
     ):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
@@ -195,6 +196,7 @@ class LoraLinear(nn.Linear, LoRALayer):
                            merge_weights=merge_weights)
         
         self.half()
+        self.enabled = enabled
 
         self.fan_in_fan_out = fan_in_fan_out
         # Actual trainable parameters
@@ -233,6 +235,10 @@ class LoraLinear(nn.Linear, LoRALayer):
                     self.weight.data += T(self.lora_B @ self.lora_A) * self.scaling
                 self.merged = True       
 
+    #!!!!!
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+
     def forward(self, x: torch.Tensor):
         def T(w):
             return w.transpose(0, 1) if self.fan_in_fan_out else w
@@ -245,15 +251,17 @@ class LoraLinear(nn.Linear, LoRALayer):
             return F.linear(x, T(self.weight), bias=self.bias)
 
 #!!!!!
-def apply_lora(model, rank = 1):
+def apply_lora(model, rank = 4):
     new_model = model
+    lora_layer_num = 0
     for name, module in list(model.named_modules()):
         if isinstance(module, nn.Linear):
             in_features = module.in_features
             out_features = module.out_features
             lora_module = LoraLinear(in_features = in_features, out_features = out_features, r = rank)
             setattr(new_model, name, lora_module)
-    return new_model
+            lora_layer_num += 1
+    return new_model, lora_layer_num
 
 def freeze_others(pipeline):
     first_name, last_name = find_first_and_last_layers(pipeline)
@@ -266,6 +274,11 @@ def freeze_others(pipeline):
         else:
             for param in module.parameters():
                 param.requires_grad = False
+#!!!!!
+def enable_lora(model, enable = True):
+    for module in model.modules():
+        if isinstance(module, LoraLinear):
+            module.set_enabled(enable)
 
 def find_first_and_last_layers(model):
     first_layer_name = None
@@ -423,6 +436,21 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         - The trained model is saved after the training is completed.
     """
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    #!!!!!
+    # ds_config_file = dict(
+    # zero2="zero2_config.json",
+    # zero3="zero3_config.json",)
+    # zero2_plugin = DeepSpeedPlugin(hf_ds_config=ds_config_file["zero2"])
+    # zero3_plugin = DeepSpeedPlugin(hf_ds_config=ds_config_file["zero3"])
+    # deepspeed_plugins = {"zero2": zero2_plugin, "zero3": zero3_plugin}
+
+    # accelerator_lora = Accelerator(
+    #     gradient_accumulation_steps=cfg.solver.gradient_accumulation_steps,
+    #     mixed_precision=cfg.solver.mixed_precision,
+    #     deepspeed_plugins=deepspeed_plugins,
+    # )
+    # accelerator_lora.state.select_deepspeed_plugin("zero2")
+    
     accelerator = Accelerator(
         gradient_accumulation_steps=cfg.solver.gradient_accumulation_steps,
         mixed_precision=cfg.solver.mixed_precision,
@@ -430,6 +458,9 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         project_dir="./mlruns",
         kwargs_handlers=[kwargs],
     )
+    accelerator_lora = Accelerator()
+    # accelerator.state.select_deepspeed_plugin("zero2")
+    
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -452,6 +483,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     # create output dir for training
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
+    #!!!!!
     checkpoint_dir = os.path.join(save_dir, "checkpoint")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
@@ -538,57 +570,9 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     ).to(dtype=weight_dtype)
 
     #!!!!!
-    net = apply_lora(net)
+    net, net_lora_num = apply_lora(net)
     freeze_others(net)
     
-    # teacher_reference_unet = UNet2DConditionModel.from_pretrained(
-    #     cfg.base_model_path,
-    #     subfolder="unet",
-    # ).to(device="cuda", dtype=weight_dtype)
-    # teacher_denoising_unet = UNet3DConditionModel.from_pretrained_2d(
-    #     cfg.base_model_path,
-    #     "",
-    #     subfolder="unet",
-    #     unet_additional_kwargs={
-    #         "use_motion_module": False,
-    #         "unet_use_temporal_attention": False,
-    #     },
-    #     use_landmark=False
-    # ).to(device="cuda", dtype=weight_dtype)
-    # teacher_imageproj = ImageProjModel(
-    #     cross_attention_dim=denoising_unet.config.cross_attention_dim,
-    #     clip_embeddings_dim=512,
-    #     clip_extra_context_tokens=4,
-    # ).to(device="cuda", dtype=weight_dtype)
-    # 
-    # if cfg.face_locator_pretrained:
-    #     teacher_face_locator = FaceLocator(
-    #         conditioning_embedding_channels=320, block_out_channels=(16, 32, 96, 256)
-    #     ).to(device="cuda", dtype=weight_dtype)
-    #     miss, _ = face_locator.load_state_dict(
-    #         cfg.face_state_dict_path, strict=False)
-    #     logger.info(f"Missing key for face locator: {len(miss)}")
-    # else:
-    #     teacher_face_locator = FaceLocator(
-    #         conditioning_embedding_channels=320,
-    #     ).to(device="cuda", dtype=weight_dtype)
-    # teacher_denoising_unet.requires_grad_(False)
-    # teacher_reference_unet.requires_grad_(False)
-    # teacher_imageproj.requires_grad_(False)
-    # teacher_face_locator.requires_grad_(False)
-    teacher = Net(
-        reference_unet,
-        denoising_unet,
-        face_locator,
-        reference_control_writer,
-        reference_control_reader,
-        imageproj,
-    ).to(dtype=weight_dtype)
-    teacher.reference_unet.requires_grad_(False)
-    teacher.denoising_unet.requires_grad_(False)
-    teacher.face_locator.requires_grad_(False)
-    teacher.imageproj.requires_grad_(False)
-
     lora_teacher = Net(
         reference_unet,
         denoising_unet,
@@ -597,7 +581,11 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         reference_control_reader,
         imageproj,
     ).to(dtype=weight_dtype)
-    lora_teacher = apply_lora(lora_teacher)
+    denoising_unet.requires_grad_(False)
+    reference_unet.requires_grad_(False)
+    imageproj.requires_grad_(False)
+    face_locator.requires_grad_(False)
+    lora_teacher, lora_teacher_lora_num = apply_lora(lora_teacher)
     freeze_others(lora_teacher)
 
     # get noise scheduler
@@ -706,14 +694,26 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         train_dataloader,
         lr_scheduler,
     )
+    (
+        lora_teacher,
+        optimizer_lora,
+        train_dataloader,
+        lr_scheduler_lora,
+    ) = accelerator_lora.prepare(
+        lora_teacher,
+        optimizer_lora,
+        train_dataloader,
+        lr_scheduler_lora,
+    )
     #!!!!!
-    config_path = "/data/kimjihooa/repos/hallo/deepspeed_config.json"
-    with open(config_path, 'r') as f:
-        deepspeed_config = json.load(f)
-    lora_engine, optimizer_lora, _, _ = deepspeed.initialize(
-                      model=lora_teacher,
-                      model_parameters=lora_teacher.parameters(),
-                      config=deepspeed_config)
+    # config_path = "/data/kimjihooa/repos/hallo/deepspeed_config.json"
+    # with open(config_path, 'r') as f:
+    #     deepspeed_config = json.load(f)
+    # lora_engine, optimizer_lora, _, _ = deepspeed.initialize(
+    #                   model=lora_teacher,
+    #                   model_parameters=lora_teacher.parameters(),
+    #                   config=deepspeed_config)
+
     
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(
@@ -746,9 +746,12 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         * cfg.solver.gradient_accumulation_steps
     )
     #!!!!!
-    pytorch_total_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
-    pytorch_total_params += sum(p.numel() for p in lora_teacher.parameters() if p.requires_grad)
-    logger.info(f"Num params = {pytorch_total_params}")
+    student_total_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    teacher_total_params = sum(p.numel() for p in lora_teacher.parameters() if p.requires_grad)
+    logger.info(f"Student Num Params = {student_total_params}")
+    logger.info(f"Student LoRA Layer Num = {net_lora_num}")
+    logger.info(f"Teacher Num Params = {teacher_total_params}")
+    logger.info(f"Teacher LoRA Layer Num = {lora_teacher_lora_num}")
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {num_train_epochs}")
@@ -902,7 +905,8 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                     face_mask_img,
                     uncond_fwd,
                 )
-                teacher_pred = teacher(
+                enable_lora(lora_teacher, False) 
+                teacher_pred = lora_teacher(
                     noisy_latents,
                     timesteps,
                     ref_image_latents,
@@ -910,9 +914,8 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                     face_mask_img,
                     uncond_fwd,
                 )
+                enable_lora(lora_teacher, True)
                 #LoRA loss
-                timesteps_range = torch.tensor([0, 1]) * train_noise_scheduler.config.num_train_timesteps
-                timesteps = torch.randint(*timesteps_range.long(), (bsz,), device=accelerator.device).long()
                 alpha_t = (alphas_cumprod[timesteps] ** 0.5).view(-1, 1, 1, 1)
                 lora_pred = alpha_t * lora_pred
                 target = alpha_t * noise
@@ -922,39 +925,38 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                 net_requires_grad = {name: param.requires_grad for name, param in net.named_parameters()}
                 for param in net.parameters():
                     param.requires_grad = False
-                logger.info("2")
-                #accelerator.backward(loss_lora)
-                lora_engine.backward(loss_lora, retain_graph=True)
+                # accelerator.backward(loss_lora)
+                accelerator_lora.backward(loss_lora, retain_graph = True)
+                # loss_lora.backward(retain_graph = True)
                 logger.info("3")
                 if accelerator.sync_gradients:
                     # clip_grad_norm_(list(filter(lambda p: p.requires_grad, lora_teacher.parameters())), max_norm=1.0)
-                    clip_grad_norm_(
+                    accelerator.clip_grad_norm_(
                         list(filter(lambda p: p.requires_grad, lora_teacher.parameters())),
                         cfg.solver.max_grad_norm,
                     )
                 logger.info("4")
-                #optimizer_lora.step()
-                #logger.info("5")
-                #lr_scheduler_lora.step()
-                #logger.info("6")
-                #optimizer_lora.zero_grad()
-                lora_engine.step()
+                optimizer_lora.step()
+                logger.info("5")
+                lr_scheduler_lora.step()
+                logger.info("6")
+                optimizer_lora.zero_grad()
                 logger.info("7")
                 for name, param in net.named_parameters():
                     param.requires_grad = net_requires_grad[name]
                 # vsd loss
-                logger.info("8")
-                lora_requires_grad = {name: param.requires_grad for name, param in lora_teacher.named_parameters()}
-                for param in lora_teacher.parameters():
-                    param.requires_grad = False
                 logger.info("9")
                 sigma_t = ((1 - alphas_cumprod[timesteps]) ** 0.5).view(-1, 1, 1, 1)
                 score_gradient = torch.nan_to_num(sigma_t**2 * (teacher_pred - lora_pred))
                 target = (model_pred - score_gradient).detach()
                 loss_vsd = 0.5 * F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 # Backpropagate
+                lora_requires_grad = {name: param.requires_grad for name, param in lora_teacher.named_parameters()}
+                for param in lora_teacher.parameters():
+                    param.requires_grad = False
                 logger.info("10")
                 accelerator.backward(loss_vsd)
+                # loss_vsd.backward()
                 logger.info("11")
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(
@@ -967,7 +969,6 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                 optimizer.zero_grad()
                 for name, param in lora_teacher.named_parameters():
                     param.requires_grad = lora_requires_grad[name]
-
             if accelerator.sync_gradients:
                 reference_control_reader.clear()
                 reference_control_writer.clear()
