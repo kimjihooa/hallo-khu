@@ -15,7 +15,7 @@ for i in range(1, 100):
 
 all_files = [os.path.join(directory, f) for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
 
-files_to_delete = random.sample(all_files, 190)
+files_to_delete = random.sample(all_files, 90)
 
 for file_path in files_to_delete:
     try:
