@@ -66,6 +66,7 @@ from hallo.utils.util import (compute_snr, delete_additional_ckpt,
 #from loralib import Linear as LoraLinear
 from torch.nn.utils import clip_grad_norm_
 import json
+from peft import LoraConfig, PeftModel, get_peft_model
 
 warnings.filterwarnings("ignore")
 
@@ -616,7 +617,7 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
     #!!!!!
-    checkpoint_dir = os.path.join(save_dir, "checkpoint")
+    checkpoint_dir = os.path.join(save_dir, "checkpointbbbbb")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
     if accelerator.is_main_process:
@@ -737,10 +738,7 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
         audioproj,
     ).to(dtype=weight_dtype)
     
-    #!!!!!
-    net, net_lora_num = apply_lora(net)
-    freeze_others(net)
-
+   #!!!!!
     lora_teacher = Net(
         reference_unet,
         denoising_unet,
@@ -748,15 +746,41 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
         reference_control_writer,
         reference_control_reader,
         imageproj,
-        audioproj,
     ).to(dtype=weight_dtype)
-    lora_teacher.reference_unet.requires_grad_(False)
-    lora_teacher.denoising_unet.requires_grad_(False)
-    lora_teacher.face_locator.requires_grad_(False)
-    lora_teacher.imageproj.requires_grad_(False)
-    lora_teacher.audioproj.requires_grad_(False)
-    lora_teacher, lora_teacher_lora_num = apply_lora(lora_teacher)
-    freeze_others(lora_teacher)
+
+    list_path = ["./pretrained_models/hallo", 'net.pth']
+    lora_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        target_modules=["to_q", "to_v"],
+    )
+
+    m,u = net.load_state_dict(
+        torch.load(
+            os.path.join(*list_path),
+            map_location="cpu",
+        ), strict = False
+    )
+    #assert len(m) == 0 and len(u) == 0, "Fail to load correct checkpoint."
+    print("loaded weight from ", os.path.join(*list_path))
+    net = get_peft_model(net, lora_config)
+    
+
+    
+    m,u = lora_teacher.load_state_dict(
+        torch.load(
+            os.path.join(*list_path),
+            map_location="cpu",
+        ), strict = False
+    )
+    #assert len(m) == 0 and len(u) == 0, "Fail to load correct checkpoint."
+    print("loaded weight from ", os.path.join(*list_path))
+    lora_teacher = get_peft_model(lora_teacher, lora_config)
+
+    # net, net_lora_num = apply_lora(net)
+    # freeze_others(net)
+    # lora_teacher, lora_teacher_lora_num = apply_lora(lora_teacher)
+    # freeze_others(lora_teacher)
 
     # get noise scheduler
     train_noise_scheduler, val_noise_scheduler = get_noise_scheduler(cfg)
@@ -1079,110 +1103,46 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
                     uncond_audio_fwd=uncond_audio_fwd,
                 )
 
-                # if cfg.snr_gamma == 0:
-                #     loss = F.mse_loss(
-                #         model_pred.float(),
-                #         target.float(),
-                #         reduction="mean",
-                #     )
-                # else:
-                #     snr = compute_snr(train_noise_scheduler, timesteps)
-                #     if train_noise_scheduler.config.prediction_type == "v_prediction":
-                #         # Velocity objective requires that we add one to SNR values before we divide by them.
-                #         snr = snr + 1
-                #     mse_loss_weights = (
-                #         torch.stack(
-                #             [snr, cfg.snr_gamma * torch.ones_like(timesteps)], dim=1
-                #         ).min(dim=1)[0]
-                #         / snr
-                #     )
-                #     loss = F.mse_loss(
-                #         model_pred.float(),
-                #         target.float(),
-                #         reduction="mean",
-                #     )
-                #     loss = (
-                #         loss.mean(dim=list(range(1, len(loss.shape))))
-                #         * mse_loss_weights
-                #     ).mean()
-                # 
-                # # Gather the losses across all processes for logging (if we use distributed training).
-                # avg_loss = accelerator.gather(
-                #     loss.repeat(cfg.data.train_bs)).mean()
-                # train_loss += avg_loss.item() / cfg.solver.gradient_accumulation_steps
-
                 #!!!!!
-                lora_pred = lora_teacher(
-                    noisy_latents=noisy_latents,
-                    timesteps=timesteps,
-                    ref_image_latents=ref_image_latents,
-                    face_emb=image_prompt_embeds,
-                    mask=pixel_values_mask,
-                    full_mask=pixel_values_full_mask,
-                    face_mask=pixel_values_face_mask,
-                    lip_mask=pixel_values_lip_mask,
-                    audio_emb=batch["audio_tensor"].to(
-                        dtype=weight_dtype),
-                    uncond_img_fwd=uncond_img_fwd,
-                    uncond_audio_fwd=uncond_audio_fwd,
-                )
-                enable_lora(lora_teacher, False) 
-                teacher_pred = lora_teacher(
-                    noisy_latents=noisy_latents,
-                    timesteps=timesteps,
-                    ref_image_latents=ref_image_latents,
-                    face_emb=image_prompt_embeds,
-                    mask=pixel_values_mask,
-                    full_mask=pixel_values_full_mask,
-                    face_mask=pixel_values_face_mask,
-                    lip_mask=pixel_values_lip_mask,
-                    audio_emb=batch["audio_tensor"].to(
-                        dtype=weight_dtype),
-                    uncond_img_fwd=uncond_img_fwd,
-                    uncond_audio_fwd=uncond_audio_fwd,
-                )
-                enable_lora(lora_teacher, True) 
-
-                # #LoRA loss
-                # alpha_t = (alphas_cumprod[timesteps] ** 0.5).view(-1, 1, 1, 1)
-                # lora_pred = alpha_t * lora_pred
-                # target = alpha_t * noise
-                # loss_lora = F.mse_loss(lora_pred.float(), target.float(), reduction="mean")
-                # # Backpropagate
-                # logger.info("1")
-                # net_requires_grad = {name: param.requires_grad for name, param in net.named_parameters()}
-                # for param in net.parameters():
-                #     param.requires_grad = False
-                # # accelerator.backward(loss_lora)
-                # accelerator_lora.backward(loss_lora, retain_graph = True)
-                # # loss_lora.backward(retain_graph = True)
-                # logger.info("3")
-                # if accelerator.sync_gradients:
-                #     # clip_grad_norm_(list(filter(lambda p: p.requires_grad, lora_teacher.parameters())), max_norm=1.0)
-                #     accelerator.clip_grad_norm_(
-                #         list(filter(lambda p: p.requires_grad, lora_teacher.parameters())),
-                #         cfg.solver.max_grad_norm,
-                #     )
-                # logger.info("4")
-                # optimizer_lora.step()
-                # logger.info("5")
-                # lr_scheduler_lora.step()
-                # logger.info("6")
-                # optimizer_lora.zero_grad()
-                # logger.info("7")
-                # for name, param in net.named_parameters():
-                #     param.requires_grad = net_requires_grad[name]
+                with torch.no_grad():
+                    lora_teacher.disable_adapter_layers()
+                    teacher_pred = lora_teacher(
+                        noisy_latents=noisy_latents,
+                        timesteps=timesteps,
+                        ref_image_latents=ref_image_latents,
+                        face_emb=image_prompt_embeds,
+                        mask=pixel_values_mask,
+                        full_mask=pixel_values_full_mask,
+                        face_mask=pixel_values_face_mask,
+                        lip_mask=pixel_values_lip_mask,
+                        audio_emb=batch["audio_tensor"].to(
+                            dtype=weight_dtype),
+                        uncond_img_fwd=uncond_img_fwd,
+                        uncond_audio_fwd=uncond_audio_fwd,
+                    )
+                    lora_teacher.enable_adapter_layers()
+                    lora_pred = lora_teacher(
+                        noisy_latents=noisy_latents,
+                        timesteps=timesteps,
+                        ref_image_latents=ref_image_latents,
+                        face_emb=image_prompt_embeds,
+                        mask=pixel_values_mask,
+                        full_mask=pixel_values_full_mask,
+                        face_mask=pixel_values_face_mask,
+                        lip_mask=pixel_values_lip_mask,
+                        audio_emb=batch["audio_tensor"].to(
+                            dtype=weight_dtype),
+                        uncond_img_fwd=uncond_img_fwd,
+                        uncond_audio_fwd=uncond_audio_fwd,
+                    )
+                    
                 # vsd loss
                 sigma_t = ((1 - alphas_cumprod[timesteps]) ** 0.5).view(-1, 1, 1, 1)
                 score_gradient = torch.nan_to_num(sigma_t**2 * (teacher_pred - lora_pred))
                 target = (model_pred - score_gradient).detach()
                 loss_vsd = 0.5 * F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 # Backpropagate
-                # lora_requires_grad = {name: param.requires_grad for name, param in lora_teacher.named_parameters()}
-                # for param in lora_teacher.parameters():
-                #     param.requires_grad = False
-                accelerator.backward(loss_vsd)
-                # loss_vsd.backward()
+                accelerator.backward(loss_vsd, retain_graph=True)
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(
                         trainable_params,
@@ -1191,8 +1151,57 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
-                # for name, param in lora_teacher.named_parameters():
-                #     param.requires_grad = lora_requires_grad[name]
+
+                
+                noise = torch.randn_like(latents)
+                if cfg.noise_offset > 0.0:
+                    noise += cfg.noise_offset * torch.randn(
+                        (noise.shape[0], noise.shape[1], 1, 1, 1),
+                        device=noise.device,
+                    )
+                bsz = latents.shape[0]
+                timesteps = torch.randint(
+                    0,
+                    train_noise_scheduler.num_train_timesteps,
+                    (bsz,),
+                    device=latents.device,
+                )
+                timesteps = timesteps.long()
+                noisy_latents = train_noise_scheduler.add_noise(
+                    latents, noise, timesteps
+                )
+
+                # lora loss
+                lora_pred = lora_teacher(
+                        noisy_latents=noisy_latents,
+                        timesteps=timesteps,
+                        ref_image_latents=ref_image_latents,
+                        face_emb=image_prompt_embeds,
+                        mask=pixel_values_mask,
+                        full_mask=pixel_values_full_mask,
+                        face_mask=pixel_values_face_mask,
+                        lip_mask=pixel_values_lip_mask,
+                        audio_emb=batch["audio_tensor"].to(
+                            dtype=weight_dtype),
+                        uncond_img_fwd=uncond_img_fwd,
+                        uncond_audio_fwd=uncond_audio_fwd,
+                    )
+                alpha_t = (alphas_cumprod[timesteps] ** 0.5).view(-1, 1, 1, 1)
+                lora_pred = alpha_t * lora_pred
+                target = alpha_t * noise
+                loss_lora = F.mse_loss(lora_pred.float(), target.float(), reduction="mean")
+                # Backpropagate
+                accelerator.backward(loss_lora)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(
+                        trainable_params,
+                        cfg.solver.max_grad_norm,
+                    )
+                optimizer_lora.step()
+                lr_scheduler_lora.step()
+                optimizer_lora.zero_grad()
+
+
 
 
             if accelerator.sync_gradients:
