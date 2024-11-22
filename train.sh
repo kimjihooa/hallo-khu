@@ -17,7 +17,7 @@ rm -rf /local_datasets/HDTF
 mkdir /local_datasets/HDTF
 tar -xvf /data/datasets/tarfiles/HDTF.tar -C /local_datasets/HDTF
 # mv /local_datasets/HDTF/renamed_videos/ /local_datasets/HDTF/videos/
-python remove_random.py
+python remove_longest.py
 python convert_25fps.py
 
 python -m scripts.data_preprocess --input_dir /local_datasets/HDTF/videos --step 1

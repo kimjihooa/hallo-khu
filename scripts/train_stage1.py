@@ -485,7 +485,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
     #!!!!!
-    checkpoint_dir = os.path.join(save_dir, "checkpointbbbbb")
+    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
 
@@ -673,7 +673,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     )
     #!!!!!
     optimizer_lora = optimizer_cls(
-        trainable_params,
+        trainable_params_lora,
         lr=lora_learning_rate,
         betas=(cfg.solver.adam_beta1, cfg.solver.adam_beta2),
         weight_decay=cfg.solver.adam_weight_decay,

@@ -617,7 +617,7 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
     #!!!!!
-    checkpoint_dir = os.path.join(save_dir, "checkpointbbbbb")
+    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
     if accelerator.is_main_process:
@@ -831,6 +831,8 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
 
     trainable_params = list(
         filter(lambda p: p.requires_grad, net.parameters()))
+    trainable_params_lora = list(
+        filter(lambda p: p.requires_grad, lora_teacher.parameters()))
     logger.info(f"Total trainable params {len(trainable_params)}")
     optimizer = optimizer_cls(
         trainable_params,
@@ -841,7 +843,7 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
     )
     #!!!!!
     optimizer_lora = optimizer_cls(
-        trainable_params,
+        trainable_params_lora,
         lr=lora_learning_rate,
         betas=(cfg.solver.adam_beta1, cfg.solver.adam_beta2),
         weight_decay=cfg.solver.adam_weight_decay,
@@ -859,7 +861,7 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
     )
     lr_scheduler_lora = get_scheduler(
         cfg.solver.lr_scheduler,
-        optimizer=optimizer,
+        optimizer=optimizer_lora,
         num_warmup_steps=cfg.solver.lr_warmup_steps
         * cfg.solver.gradient_accumulation_steps,
         num_training_steps=cfg.solver.max_train_steps
