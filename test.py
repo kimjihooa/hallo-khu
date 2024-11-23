@@ -4,6 +4,7 @@ import shutil
 
 local_dataset_dir = "/local_datasets"
 root_dir = '/data/kimjihooa/repos/hallo'
+ckpt_dir = "/data/kimjihooa/repos/hallo/exp_output/stage1/checkpoint_sb"
 
 # Step 3: Prepare paths for image and audio directories
 image_dir = os.path.join(local_dataset_dir, "Images")  # Adjust as needed after extraction
