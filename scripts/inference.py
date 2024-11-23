@@ -50,6 +50,7 @@ from hallo.utils.util import tensor_to_video
 #!!!!!
 #from loralib import Linear as LoraLinear
 import math
+from peft import LoraConfig, PeftModel, get_peft_model
 
 #!!!!!
 class LoRALayer():
@@ -382,7 +383,12 @@ def inference_process(args: argparse.Namespace):
     )
 
     #!!!!!
-    net = apply_lora(net)
+    lora_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        target_modules=["to_q", "to_v"],
+    )
+    net = get_peft_model(net, lora_config)
 
     m,u = net.load_state_dict(
         torch.load(
