@@ -19,7 +19,7 @@ mkdir /local_datasets/Images
 mkdir /local_datasets/Audios
 tar -xvf /data/datasets/tarfiles/HDTF_Images.tar -C /local_datasets/Images
 tar -xvf /data/datasets/tarfiles/HDTF_Audios.tar -C /local_datasets/Audios
-python remove_shortest.py
+python remove_img_aud.py
 python test.py
 
 exit 0
