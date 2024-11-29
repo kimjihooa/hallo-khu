@@ -2,8 +2,8 @@ import os
 import subprocess
 
 # 경로 설정
-input_dir = "/local_datasets/HDTF/renamed_videos/"
-output_dir = "/local_datasets/HDTF/videos/"
+input_dir = "/local_datasets/imsi/CelebV/videos/"
+output_dir = "/local_datasets/CelebV/videos/"
 os.makedirs(output_dir, exist_ok=True)
 
 # 모든 파일 처리
@@ -12,7 +12,6 @@ for filename in os.listdir(input_dir):
         input_path = os.path.join(input_dir, filename)
         output_path = os.path.join(output_dir, filename)
         
-        # FFmpeg 명령어
         command = [
             "ffmpeg",
             "-i", input_path,

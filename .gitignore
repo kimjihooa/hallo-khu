@@ -177,3 +177,6 @@ Inference/
 Inference_lora/
 Inference_lora8/
 examples/
+Inference_20/
+Inference_CelebV_SB/
+Inference_CelebV_SB_20/

@@ -51,6 +51,7 @@ from hallo.utils.util import tensor_to_video
 #from loralib import Linear as LoraLinear
 import math
 from peft import LoraConfig, PeftModel, get_peft_model
+import time
 
 #!!!!!
 class LoRALayer():
@@ -388,7 +389,6 @@ def inference_process(args: argparse.Namespace):
         lora_alpha=32,
         target_modules=["to_q", "to_v"],
     )
-    net = get_peft_model(net, lora_config)
 
     m,u = net.load_state_dict(
         torch.load(
@@ -398,6 +398,7 @@ def inference_process(args: argparse.Namespace):
     )
     #assert len(m) == 0 and len(u) == 0, "Fail to load correct checkpoint."
     print("loaded weight from ", os.path.join(audio_ckpt_dir, "net.pth"))
+    net = get_peft_model(net, lora_config)
 
     # 5. inference
     pipeline = FaceAnimatePipeline(
@@ -437,6 +438,9 @@ def inference_process(args: argparse.Namespace):
     tensor_result = []
 
     generator = torch.manual_seed(42)
+
+    total_time = 0
+    start_time = time.time()
 
     for t in range(times):
         print(f"[{t+1}/{times}]")
@@ -495,6 +499,11 @@ def inference_process(args: argparse.Namespace):
     output_file = config.output
     # save the result after all iteration
     tensor_to_video(tensor_result, output_file, driving_audio_path)
+    end_time = time.time()
+    time_taken = end_time - start_time
+    total_time += time_taken
+    print("Time taken:", time_taken)
+    print("Total time taken:", total_time)
     return output_file
 
 #inference 시작

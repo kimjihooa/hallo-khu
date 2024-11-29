@@ -617,7 +617,7 @@ def train_stage2_process(cfg: argparse.Namespace) -> None:
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
     #!!!!!
-    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb")
+    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb_celebv")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
     if accelerator.is_main_process:

@@ -1,9 +1,9 @@
 import os
 import random
 
-directory = "/local_datasets/HDTF/renamed_videos/"
+directory = "/local_datasets/imsi/CelebV/videos/"
 
-for i in range(1, 100):
+for i in range(1, 51):
     file_name = f"{i:05}.mp4"
     file_path = os.path.join(directory, file_name)
     
@@ -15,7 +15,7 @@ for i in range(1, 100):
 
 all_files = [os.path.join(directory, f) for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
 
-files_to_delete = random.sample(all_files, 290)
+files_to_delete = random.sample(all_files, 30616)
 
 for file_path in files_to_delete:
     try:
