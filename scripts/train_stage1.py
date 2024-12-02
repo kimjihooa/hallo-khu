@@ -485,7 +485,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
     #!!!!!
-    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb_celebv")
+    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb_celebv_unfreezed")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
 
@@ -612,6 +612,21 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     # lora_teacher, lora_teacher_lora_num = apply_lora(lora_teacher)
     # freeze_others(lora_teacher)
 
+    #!!!!!
+    module_to_unfreeze = ["denoising_unet.down_blocks.0",
+                          "denoising_unet.up_blocks.0",
+                          "reference_unet.up_blocks.0",
+                          "reference_unet.down_blocks.0"
+                          ]
+    
+    for name, module in net.named_modules():
+        for target in module_to_unfreeze:
+            if target in name:
+                for param in module.parameters():
+                    param.requires_grad = True
+                    param.data = param.data.half()
+                print(f"Unfreezing parameters in module: {name}")
+
     # get noise scheduler
     train_noise_scheduler, val_noise_scheduler = get_noise_scheduler(cfg)
 
@@ -720,25 +735,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         train_dataloader,
         lr_scheduler,
     )
-    # (
-    #     lora_teacher,
-    #     optimizer_lora,
-    #     train_dataloader,
-    #     lr_scheduler_lora,
-    # ) = accelerator_lora.prepare(
-    #     lora_teacher,
-    #     optimizer_lora,
-    #     train_dataloader,
-    #     lr_scheduler_lora,
-    # )
-    #!!!!!
-    # config_path = "/data/kimjihooa/repos/hallo/deepspeed_config.json"
-    # with open(config_path, 'r') as f:
-    #     deepspeed_config = json.load(f)
-    # lora_engine, optimizer_lora, _, _ = deepspeed.initialize(
-    #                   model=lora_teacher,
-    #                   model_parameters=lora_teacher.parameters(),
-    #                   config=deepspeed_config)
+    
 
     
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.

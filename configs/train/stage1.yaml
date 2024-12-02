@@ -9,7 +9,7 @@ data:
 
 solver:
   gradient_accumulation_steps: 1
-  mixed_precision: "no"
+  mixed_precision: "fp16"
   enable_xformers_memory_efficient_attention: True
   gradient_checkpointing: False
   max_train_steps: 15000
