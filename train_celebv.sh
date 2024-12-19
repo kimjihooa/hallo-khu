@@ -14,18 +14,17 @@ pwd
 which python
 hostname
 
-rm -rf /local_datasets/CelebV
-mkdir /local_datasets/imsi
-tar -xvf /data/datasets/tarfiles/CelebV.tar -C /local_datasets/imsi
-python remove_random.py
-python convert_25fps.py
-rm -rf /local_datasets/imsi
+#rm -rf /local_datasets/CelebV
+#tar -xvf /data/datasets/tarfiles/CelebV_preprocessed.tar -C /local_datasets/
+#python remove_random.py
+#python convert_25fps.py
+#rm -rf /local_datasets/imsi
+#
+#python -m scripts.data_preprocess --input_dir /local_datasets/CelebV/videos --step 1
+#python -m scripts.data_preprocess --input_dir /local_datasets/CelebV/videos --step 2
 
-python -m scripts.data_preprocess --input_dir /local_datasets/CelebV/videos --step 1
-python -m scripts.data_preprocess --input_dir /local_datasets/CelebV/videos --step 2
-
-python scripts/extract_meta_info_stage1.py -r /local_datasets/CelebV -n dataset_name
-python scripts/extract_meta_info_stage2.py -r /local_datasets/CelebV -n dataset_name
+#python scripts/extract_meta_info_stage1.py -r /local_datasets/CelebV -n dataset_name
+#python scripts/extract_meta_info_stage2.py -r /local_datasets/CelebV -n dataset_name
 
 accelerate launch -m \
   --config_file accelerate_config.yaml \

@@ -2,7 +2,7 @@ import os
 import subprocess
 import shutil
 
-local_dataset_dir = "/local_datasets/CelebV"
+local_dataset_dir = "/local_datasets/CelebV_infer"
 root_dir = '/data/kimjihooa/repos/hallo'
 ckpt_dir = "/data/kimjihooa/repos/hallo/exp_output/stage1/checkpoint_sb_celebv"
 

@@ -24,6 +24,8 @@ from tqdm import tqdm
 from hallo.datasets.audio_processor import AudioProcessor
 from hallo.datasets.image_processor import ImageProcessorForDataProcessing
 from hallo.utils.util import convert_video_to_images, extract_audio_from_videos
+import subprocess
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -55,6 +57,34 @@ def setup_directories(video_path: Path) -> dict:
 
     return dirs
 
+def convert_25fps(video_path):
+
+    if not os.path.isfile(video_path):
+        print(f"Error: {video_path} File does not exist.")
+        return
+
+    dir_name = os.path.dirname(video_path)
+    file_name = os.path.basename(video_path)
+    temp_path = os.path.join(dir_name, "temp_" + file_name)
+
+    command = [
+        "ffmpeg",
+        "-i", video_path,          # 입력 파일
+        "-filter:v", "fps=fps=25", # FPS를 25로 설정
+        "-c:v", "libx264",         # 비디오 코덱 설정
+        "-preset", "fast",         # 인코딩 속도
+        "-c:a", "aac",             # 오디오 코덱 설정
+        "-b:a", "192k",            # 오디오 비트레이트 설정
+        "-y",                      # 출력 파일 덮어쓰기
+        temp_path                  # 임시 출력 파일
+    ]
+
+    print(f"Processing {video_path}...")
+    subprocess.run(command, check=True)
+
+    os.remove(video_path)
+    os.rename(temp_path, video_path)
+    print(f"Converted {video_path} to 25 FPS.")
 
 def process_single_video(video_path: Path,
                          output_dir: Path,
@@ -77,6 +107,8 @@ def process_single_video(video_path: Path,
 
     try:
         if step == 1:
+            #convert_25fps(video_path)
+
             images_output_dir = output_dir / 'images' / video_path.stem
             images_output_dir.mkdir(parents=True, exist_ok=True)
             images_output_dir = convert_video_to_images(
@@ -100,6 +132,8 @@ def process_single_video(video_path: Path,
                         f"{video_path.stem}.png"), sep_face_mask)
             cv2.imwrite(str(dirs["sep_lip_mask"] /
                         f"{video_path.stem}.png"), sep_lip_mask)
+            #!!!!!
+            return True
         else:
             images_dir = output_dir / "images" / video_path.stem
             audio_path = output_dir / "audios" / f"{video_path.stem}.wav"
@@ -109,8 +143,13 @@ def process_single_video(video_path: Path,
             audio_emb, _ = audio_processor.preprocess(audio_path)
             torch.save(audio_emb, str(
                 dirs["audio_emb"] / f"{video_path.stem}.pt"))
+            #!!!!!
+            return True
+        
     except Exception as e:
         logging.error(f"Failed to process video {video_path}: {e}")
+        #!!!!!
+        return False
 
 
 def process_all_videos(input_video_list: List[Path], output_dir: Path, step: int) -> None:
@@ -140,9 +179,22 @@ def process_all_videos(input_video_list: List[Path], output_dir: Path, step: int
     image_processor = ImageProcessorForDataProcessing(
         face_analysis_model_path, landmark_model_path, step)
 
+    #!!!!!
+    preprocessed_num = 0
     for video_path in tqdm(input_video_list, desc="Processing videos"):
-        process_single_video(video_path, output_dir,
-                             image_processor, audio_processor, step)
+        if preprocessed_num != 2000:
+            successed = process_single_video(video_path, output_dir,
+                                 image_processor, audio_processor, step)
+            if successed:
+                preprocessed_num += 1
+            else:
+                os.remove(video_path)
+                logging.info(f"Preprocess Filed. Deleting: {video_path}")
+            logging.info(f"Processing video: {preprocessed_num} / 2000")
+        else:
+            os.remove(video_path)
+            logging.info(f"Deleted: {video_path}")
+
 
 
 def get_video_paths(source_dir: Path, parallelism: int, rank: int) -> List[Path]:

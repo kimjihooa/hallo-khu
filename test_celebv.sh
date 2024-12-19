@@ -13,10 +13,11 @@
 pwd
 which python
 hostname
-rm -rf /local_datasets/CelebV
-mkdir /local_datasets/CelebV
-tar -xvf /data/datasets/tarfiles/CelebV_Images.tar -C /local_datasets/CelebV
-tar -xvf /data/datasets/tarfiles/CelebV_Audios.tar -C /local_datasets/CelebV
+
+rm -rf /local_datasets/CelebV_infer
+mkdir /local_datasets/CelebV_infer
+tar -xvf /data/datasets/tarfiles/CelebV_Images.tar -C /local_datasets/CelebV_infer/
+tar -xvf /data/datasets/tarfiles/CelebV_Audios.tar -C /local_datasets/CelebV_infer/
 python test.py
 
 exit 0

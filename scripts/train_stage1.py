@@ -291,16 +291,19 @@ def find_first_and_last_layers(model):
             last_layer_name = name
     return first_layer_name, last_layer_name
 
+#here
+
 def get_noise_scheduler(cfg: argparse.Namespace):
     """
-    Create noise scheduler for training
+    Create noise scheduler for training.
 
     Args:
         cfg (omegaconf.dictconfig.DictConfig): Configuration object.
 
     Returns:
-        train noise scheduler and val noise scheduler
+        train noise scheduler, val noise scheduler, and student train noise scheduler.
     """
+    # 기존 Train Noise Scheduler 생성
     sched_kwargs = OmegaConf.to_container(cfg.noise_scheduler_kwargs)
     if cfg.enable_zero_snr:
         sched_kwargs.update(
@@ -312,7 +315,12 @@ def get_noise_scheduler(cfg: argparse.Namespace):
     sched_kwargs.update({"beta_schedule": "scaled_linear"})
     train_noise_scheduler = DDIMScheduler(**sched_kwargs)
 
-    return train_noise_scheduler, val_noise_scheduler
+    # Student용 Train Noise Scheduler 생성
+    student_sched_kwargs = copy.deepcopy(sched_kwargs)
+    student_sched_kwargs["num_train_timesteps"] = 20  # 타임스텝을 20으로 설정
+    student_train_noise_scheduler = DDIMScheduler(**student_sched_kwargs)
+
+    return train_noise_scheduler, val_noise_scheduler, student_train_noise_scheduler
 
 
 def log_validation(
@@ -485,7 +493,7 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     exp_name = cfg.exp_name
     save_dir = f"{cfg.output_dir}/{exp_name}"
     #!!!!!
-    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb_celebv_unfreezed")
+    checkpoint_dir = os.path.join(save_dir, "checkpoint_sb_final")
     module_dir = os.path.join(save_dir, "modules")
     validation_dir = os.path.join(save_dir, "validation")
 
@@ -580,6 +588,18 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         imageproj,
     ).to(dtype=weight_dtype)
 
+    #!!!!!~~~~~
+    module_to_unfreeze = ["denoising_unet.down_blocks.2",
+                          "denoising_unet.up_blocks.2",
+                          "reference_unet.up_blocks.2",
+                          "reference_unet.down_blocks.2"
+                          ]
+    
+    freeze_status = {}
+    for name, module in net.named_modules():
+        if any(target in name for target in module_to_unfreeze):
+            freeze_status[name] = [param.requires_grad for param in module.parameters()]
+
     list_path = ["./pretrained_models/hallo", 'net.pth']
     lora_config = LoraConfig(
         r=8,
@@ -607,28 +627,21 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
     print("loaded weight from ", os.path.join(*list_path))
     lora_teacher = get_peft_model(lora_teacher, lora_config)
 
+    #!!!!!~~~~~
+    for name, status in freeze_status.items():
+        if name in dict(net.named_modules()):
+            module = dict(net.named_modules())[name]
+            for param, freeze in zip(module.parameters(), status):
+                param.requires_grad = freeze
+
     # net, net_lora_num = apply_lora(net)
     # freeze_others(net)
     # lora_teacher, lora_teacher_lora_num = apply_lora(lora_teacher)
     # freeze_others(lora_teacher)
 
-    #!!!!!
-    module_to_unfreeze = ["denoising_unet.down_blocks.0",
-                          "denoising_unet.up_blocks.0",
-                          "reference_unet.up_blocks.0",
-                          "reference_unet.down_blocks.0"
-                          ]
-    
-    for name, module in net.named_modules():
-        for target in module_to_unfreeze:
-            if target in name:
-                for param in module.parameters():
-                    param.requires_grad = True
-                    param.data = param.data.half()
-                print(f"Unfreezing parameters in module: {name}")
-
     # get noise scheduler
-    train_noise_scheduler, val_noise_scheduler = get_noise_scheduler(cfg)
+    #here
+    train_noise_scheduler, val_noise_scheduler, student_train_noise_scheduler = get_noise_scheduler(cfg)
 
     # init optimizer
     if cfg.solver.enable_xformers_memory_efficient_attention:
@@ -735,7 +748,25 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
         train_dataloader,
         lr_scheduler,
     )
-    
+    # (
+    #     lora_teacher,
+    #     optimizer_lora,
+    #     train_dataloader,
+    #     lr_scheduler_lora,
+    # ) = accelerator_lora.prepare(
+    #     lora_teacher,
+    #     optimizer_lora,
+    #     train_dataloader,
+    #     lr_scheduler_lora,
+    # )
+    #!!!!!
+    # config_path = "/data/kimjihooa/repos/hallo/deepspeed_config.json"
+    # with open(config_path, 'r') as f:
+    #     deepspeed_config = json.load(f)
+    # lora_engine, optimizer_lora, _, _ = deepspeed.initialize(
+    #                   model=lora_teacher,
+    #                   model_parameters=lora_teacher.parameters(),
+    #                   config=deepspeed_config)
 
     
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -826,13 +857,25 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
 
                 bsz = latents.shape[0]
                 # Sample a random timestep for each video
-                timesteps = torch.randint(
+
+                student_timesteps =  torch.randint(
                     0,
-                    train_noise_scheduler.num_train_timesteps,
+                    20,
                     (bsz,),
                     device=latents.device,
                 )
+
+                student_timesteps = student_timesteps.long()
+                print("studenttimestep : ", student_timesteps)
+                timesteps = student_timesteps*50
+
                 timesteps = timesteps.long()
+                print("timestep : ", timesteps)
+                #here
+
+
+                logger.info(f"Original timesteps: {timesteps.cpu().numpy()}")
+                logger.info(f"Student timesteps: {student_timesteps.cpu().numpy()}")
 
                 face_mask_img = batch["tgt_mask"]
                 face_mask_img = face_mask_img.unsqueeze(
@@ -869,6 +912,11 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                     latents, noise, timesteps
                 )
 
+                #here
+                student_noisy_latents = student_train_noise_scheduler.add_noise(
+                latents, noise, student_timesteps
+)
+
                 # Get the target for loss depending on the prediction type
                 if train_noise_scheduler.prediction_type == "epsilon":
                     target = noise
@@ -880,9 +928,10 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                     raise ValueError(
                         f"Unknown prediction type {train_noise_scheduler.prediction_type}"
                     )
+                #here
                 model_pred = net(
-                    noisy_latents,
-                    timesteps,
+                    student_noisy_latents,
+                    student_timesteps,
                     ref_image_latents,
                     face_emb,
                     face_mask_img,
@@ -911,8 +960,11 @@ def train_stage1_process(cfg: argparse.Namespace) -> None:
                     )
                     
                 # vsd loss
-                sigma_t = ((1 - alphas_cumprod[timesteps]) ** 0.5).view(-1, 1, 1, 1)
-                score_gradient = torch.nan_to_num(sigma_t**2 * (teacher_pred - lora_pred))
+                #here
+                sigma_teacher = ((1 - alphas_cumprod[timesteps]) ** 0.5).view(-1, 1, 1, 1)
+                sigma_student = ((1 - alphas_cumprod[student_timesteps]) ** 0.5).view(-1, 1, 1, 1)
+
+                score_gradient = torch.nan_to_num(sigma_student / sigma_teacher * (teacher_pred - lora_pred))
                 target = (model_pred - score_gradient).detach()
                 loss_vsd = 0.5 * F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 # Backpropagate
